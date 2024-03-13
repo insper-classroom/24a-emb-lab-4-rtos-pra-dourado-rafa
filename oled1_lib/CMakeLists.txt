@@ -2,6 +2,7 @@
 add_library(oled1_lib
     ssd1306.c
     gfx.c
+    oled1_init.c
 )
 
 
