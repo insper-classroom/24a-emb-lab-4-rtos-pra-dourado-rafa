@@ -82,22 +82,17 @@ void oled_task() {
     oled1_btn_led_init();
 
     double distance = 0;
-    char text[MAX_LENGTH] = "Medindo...";
-    int line = 15;
+    char text[MAX_LENGTH] = "";
 
     while (true) {
         if (xQueueReceive(queue_distance, &distance, 0)) {
             snprintf(text, MAX_LENGTH, "Distancia: %.3lf cm", distance);
-            line = 15;
+            vTaskDelay(pdMS_TO_TICKS(50));
+            gfx_clear_buffer(&disp);
+            gfx_draw_string(&disp, 0, 0, 1, text);
+            gfx_draw_line(&disp, 0, 27, (int) ((distance/100)*128), 27);
+            gfx_show(&disp);
         }
-
-        gfx_clear_buffer(&disp);
-        gfx_draw_string(&disp, 0, 0, 1, text);
-        gfx_draw_line(&disp, 15, 27, line, 27);
-        gfx_show(&disp);
-
-        vTaskDelay(pdMS_TO_TICKS(10));
-        line++;
     }
 }
 
@@ -110,7 +105,6 @@ int main() {
 
     xTaskCreate(trigger_task, "Trigger", 256, NULL, 1, NULL);
     xTaskCreate(echo_task, "Echo", 256, NULL, 1, NULL);
-    xTaskCreate(oled_task, "Oled", 4095, NULL, 1, NULL);
     xTaskCreate(oled_task, "Oled", 4095, NULL, 1, NULL);
 
     vTaskStartScheduler();
