@@ -30,24 +30,16 @@ void gpio_callback(uint gpio, uint32_t events) {
     }
 }
 
-bool trigger_timer_callback(repeating_timer_t *timer) {
-    xSemaphoreGiveFromISR(semaphore_trigger, 0);
-    return true;
-}
-
 void trigger_task() {
     gpio_init(TRIGGER_PIN);
     gpio_set_dir(TRIGGER_PIN, GPIO_OUT);
-    
-    repeating_timer_t trigger_timer;
-    add_repeating_timer_ms(1001, trigger_timer_callback, NULL, &trigger_timer);
 
     while (true) {
-        if (xSemaphoreTake(semaphore_trigger, pdMS_TO_TICKS(1500)) == pdTRUE) {
-            gpio_put(TRIGGER_PIN, true);
-            vTaskDelay(pdMS_TO_TICKS(1));
-            gpio_put(TRIGGER_PIN, false);
-        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        gpio_put(TRIGGER_PIN, true);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        gpio_put(TRIGGER_PIN, false);
+        xSemaphoreGive(semaphore_trigger);
     }
 }
 
@@ -60,12 +52,14 @@ void echo_task() {
     int end_time = 0;
 
     while (true) {
-        if (xQueueReceive(queue_echo_time, &start_time, pdMS_TO_TICKS(1100)) == pdTRUE) {
+        if (xQueueReceive(queue_echo_time, &start_time, pdMS_TO_TICKS(1000)) == pdTRUE) {
             if (xQueueReceive(queue_echo_time, &end_time, pdMS_TO_TICKS(10)) == pdTRUE) {
                 double distance = ((end_time - start_time)*340)/20000.0;
                 xQueueSend(queue_distance, &distance, 0);
             } 
         }
+        start_time = 0;
+        end_time = 0;
     }
 }
 
@@ -85,12 +79,19 @@ void oled_task() {
     char text[MAX_LENGTH] = "";
 
     while (true) {
-        if (xQueueReceive(queue_distance, &distance, 0)) {
-            snprintf(text, MAX_LENGTH, "Distancia: %.3lf cm", distance);
-            vTaskDelay(pdMS_TO_TICKS(50));
+        if (xSemaphoreTake(semaphore_trigger, 0) == pdTRUE) {
             gfx_clear_buffer(&disp);
-            gfx_draw_string(&disp, 0, 0, 1, text);
-            gfx_draw_line(&disp, 0, 27, (int) ((distance/100)*128), 27);
+            if (xQueueReceive(queue_distance, &distance, pdMS_TO_TICKS(1000)) == pdTRUE) {
+                snprintf(text, MAX_LENGTH, "Distancia: %.3lf cm", distance);
+                vTaskDelay(pdMS_TO_TICKS(50));
+                gfx_draw_string(&disp, 0, 0, 1, text);
+                gfx_draw_line(&disp, 0, 27, (int) ((distance/100)*128), 27);
+            } else {
+                snprintf(text, MAX_LENGTH, "Falha");
+                vTaskDelay(pdMS_TO_TICKS(50));
+                gfx_draw_string(&disp, 0, 0, 1, text);
+                distance = 0;
+            }
             gfx_show(&disp);
         }
     }
@@ -103,8 +104,8 @@ int main() {
     queue_distance = xQueueCreate(32, sizeof(double));
     semaphore_trigger = xSemaphoreCreateBinary();
 
-    xTaskCreate(trigger_task, "Trigger", 256, NULL, 1, NULL);
-    xTaskCreate(echo_task, "Echo", 256, NULL, 1, NULL);
+    xTaskCreate(trigger_task, "Trigger", 4095, NULL, 1, NULL);
+    xTaskCreate(echo_task, "Echo", 4095, NULL, 1, NULL);
     xTaskCreate(oled_task, "Oled", 4095, NULL, 1, NULL);
 
     vTaskStartScheduler();
